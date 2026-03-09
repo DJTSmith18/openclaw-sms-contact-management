@@ -156,7 +156,7 @@ async function showSearchView(screen, contentBox, db, tableConfig, columns) {
 
 // ── Add Contact View ────────────────────────────────────────────────────────
 
-async function showAddView(screen, contentBox, db, tableConfig, columns) {
+async function showAddView(screen, contentBox, db, tableConfig, columns, returnToMenu) {
   contentBox.children.forEach(c => c.detach());
 
   const { table, phoneColumn } = tableConfig;
@@ -166,8 +166,7 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
   );
 
   cancelBtn.on('press', () => {
-    form.detach();
-    screen.render();
+    if (returnToMenu) returnToMenu();
   });
 
   saveBtn.on('press', async () => {
@@ -198,8 +197,7 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
       const placeholders = colsList.map(() => '?').join(', ');
       await dbRun(db, `INSERT INTO ${table} (${colsList.join(', ')}) VALUES (${placeholders})`, paramVals);
       await messageBox(screen, `Contact ${phone} added successfully!`, { type: 'success', label: ' Success ' });
-      form.detach();
-      screen.render();
+      if (returnToMenu) returnToMenu();
     } catch (e) {
       if (e.message.includes('UNIQUE constraint')) {
         await messageBox(screen, `Phone ${phone} already exists. Use Edit instead.`, { type: 'error', label: ' Error ' });
@@ -216,7 +214,7 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
 
 // ── Edit Contact View ───────────────────────────────────────────────────────
 
-async function showEditView(screen, contentBox, db, tableConfig, columns) {
+async function showEditView(screen, contentBox, db, tableConfig, columns, returnToMenu) {
   contentBox.children.forEach(c => c.detach());
 
   const { table, phoneColumn } = tableConfig;
@@ -227,8 +225,8 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
   });
 
   if (!row) {
-    // Cancelled or no contacts
-    screen.render();
+    // Cancelled or no contacts — return to menu
+    if (returnToMenu) returnToMenu();
     return contentBox;
   }
 
@@ -248,8 +246,7 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
   }
 
   cancelBtn.on('press', () => {
-    form.detach();
-    screen.render();
+    if (returnToMenu) returnToMenu();
   });
 
   saveBtn.on('press', async () => {
@@ -277,8 +274,7 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
         updateVals
       );
       await messageBox(screen, `Contact ${phone} updated!`, { type: 'success', label: ' Success ' });
-      form.detach();
-      screen.render();
+      if (returnToMenu) returnToMenu();
     } catch (e) {
       await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
     }

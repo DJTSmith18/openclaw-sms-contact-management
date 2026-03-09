@@ -94,6 +94,15 @@ async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom) {
   // ── View State ─────────────────────────────────────────────────────────
   let currentView = null;
 
+  // Called by views after save/cancel to safely return focus to menu
+  function returnToMenu() {
+    contentBox.children.forEach(c => c.detach());
+    contentBox.setLabel(' Content ');
+    currentView = null;
+    menuBox.focus();
+    screen.render();
+  }
+
   async function switchView(index) {
     contentBox.children.forEach(c => c.detach());
 
@@ -108,11 +117,11 @@ async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom) {
         break;
       case 2: // Add
         contentBox.setLabel(' Add Contact ');
-        currentView = await showAddView(screen, contentBox, db, tableConfig, columns);
+        currentView = await showAddView(screen, contentBox, db, tableConfig, columns, returnToMenu);
         break;
       case 3: // Edit
         contentBox.setLabel(' Edit Contact ');
-        currentView = await showEditView(screen, contentBox, db, tableConfig, columns);
+        currentView = await showEditView(screen, contentBox, db, tableConfig, columns, returnToMenu);
         break;
       case 4: // Delete
         contentBox.setLabel(' Delete Contact ');
@@ -152,7 +161,7 @@ async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom) {
   // Tab to switch between menu and content
   screen.key(['tab'], () => {
     if (menuBox === screen.focused || menuBox.children.some(c => c === screen.focused)) {
-      if (currentView) currentView.focus();
+      if (currentView && currentView.parent) currentView.focus();
     } else {
       menuBox.focus();
     }
