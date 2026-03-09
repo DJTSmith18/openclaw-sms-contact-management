@@ -162,7 +162,7 @@ The plugin auto-discovers its config from the voipms-sms or twilio plugin. All f
 
 ## Agent Tools
 
-11 tools are registered for AI agents:
+12 tools are registered for AI agents:
 
 | Tool | Description |
 |------|-------------|
@@ -177,6 +177,7 @@ The plugin auto-discovers its config from the voipms-sms or twilio plugin. All f
 | `contacts_import` | Bulk import from JSON array |
 | `contacts_export` | Export contacts as JSON |
 | `contacts_schema` | Describe table schema |
+| `contacts_add_column` | Add a new column to the contact table |
 
 See [TOOLS.md](TOOLS.md) for full parameter documentation.
 
@@ -205,7 +206,8 @@ openclaw contacts
 │  Delete      │  │ ...                                     │  │
 │  Import      │  └─────────────────────────────────────────┘  │
 │  Export      │                                               │
-│  Schema      │  Page 1/3 | 75 contacts | n=next p=prev      │
+│  Add Column  │  Page 1/3 | 75 contacts | n=next p=prev      │
+│  Schema      │                                               │
 │  DB Info     │                                               │
 │  Quit        │                                               │
 ├──────────────┴───────────────────────────────────────────────┤
@@ -230,10 +232,11 @@ openclaw contacts
 - **List** — Paginated scrollable contact table (25 per page)
 - **Search** — Type query, results update on Enter. Press `/` from results to search again
 - **Add** — Form with fields for each column. Tab between fields, save or cancel
-- **Edit** — Enter phone number, edit fields inline
-- **Delete** — Enter phone number, confirm before deleting
+- **Edit** — Select contact from scrollable list, edit fields inline
+- **Delete** — Select contact from scrollable list, confirm before deleting
 - **Import** — Provide file path (JSON or CSV), preview first 5 records, confirm import
 - **Export** — Choose format (JSON/CSV) and output file path
+- **Add Column** — Add a new column to the contact table; auto-updates voipms-sms/twilio selectColumns in openclaw.json
 - **Schema** — Table of column names, types, and primary key status
 - **DB Info** — Database path, source plugin, row count, all tables in DB
 

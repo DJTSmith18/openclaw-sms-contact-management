@@ -1,6 +1,6 @@
 # sms-contact-management — Agent Tools
 
-This plugin provides 11 tools for managing SMS contacts in the shared database.
+This plugin provides 12 tools for managing SMS contacts in the shared database.
 
 ## Tools
 
@@ -55,3 +55,8 @@ Export all contacts as JSON.
 ### `contacts_schema`
 Describe the contact table schema (column names, types, primary key).
 - No parameters required
+
+### `contacts_add_column`
+Add a new column to the contact table. Also updates `selectColumns` in voipms-sms/twilio plugin config if present.
+- `name` (required) — column name (alphanumeric + underscore)
+- `type` (optional) — SQLite type: TEXT, INTEGER, REAL, or BLOB (default: TEXT)

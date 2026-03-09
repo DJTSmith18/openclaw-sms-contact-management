@@ -455,10 +455,47 @@ module.exports = {
             } catch (e) { return { error: e.message }; }
           },
         },
+        // ── contacts_add_column
+        {
+          id: 'contacts_add_column',
+          name: 'contacts_add_column',
+          description: 'Add a new column to the contact table. Also updates selectColumns in voipms-sms/twilio config if present.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Column name (alphanumeric + underscore)' },
+              type: { type: 'string', description: 'SQLite type (default: TEXT)', enum: ['TEXT', 'INTEGER', 'REAL', 'BLOB'] },
+            },
+            required: ['name'],
+          },
+          handler: async (params) => {
+            try {
+              const { db, columns } = await getDb();
+              const { isSafeSqlIdent } = require('./src/normalize');
+              const { addColumn, updateSiblingSelectColumns, discoverColumns: dc } = require('./src/db');
+              const colName = String(params.name || '').trim();
+              const colType = String(params.type || 'TEXT').toUpperCase();
+              if (!colName || !isSafeSqlIdent(colName)) return { error: `Invalid column name: "${colName}". Must be alphanumeric + underscore.` };
+              if (columns.some(c => c.name === colName)) return { error: `Column "${colName}" already exists.` };
+              await addColumn(db, contactTable.table, colName, colType);
+              // Refresh in-memory columns
+              _columns = await dc(db, contactTable.table);
+              // Update sibling plugin configs
+              const configResult = await updateSiblingSelectColumns(api.runtime, colName);
+              return {
+                success: true,
+                column: colName,
+                type: colType,
+                table: contactTable.table,
+                configUpdates: configResult,
+              };
+            } catch (e) { return { error: e.message }; }
+          },
+        },
       ];
     });
 
-    api.logger.info('[contacts] 11 agent tools registered');
+    api.logger.info('[contacts] 12 agent tools registered');
 
     // ── Register CLI (synchronous — handlers init DB lazily) ───────────────
     api.registerCli(({ program }) => {
@@ -470,7 +507,14 @@ module.exports = {
       cmd.action(async () => {
         const { db, columns } = await getDb();
         const { launchTui } = require('./src/tui/index');
-        await launchTui(db, contactTable, columns, dbPath, discovered.discoveredFrom);
+        await launchTui(db, contactTable, columns, dbPath, discovered.discoveredFrom, {
+          runtime: api.runtime,
+          refreshColumns: async () => {
+            const { discoverColumns: dc } = require('./src/db');
+            _columns = await dc(db, contactTable.table);
+            return _columns;
+          },
+        });
       });
 
       // Non-interactive subcommands

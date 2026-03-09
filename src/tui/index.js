@@ -12,6 +12,7 @@ const {
   showExportView,
   showSchemaView,
   showDbInfoView,
+  showAddColumnView,
 } = require('./views');
 
 const MENU_ITEMS = [
@@ -22,6 +23,7 @@ const MENU_ITEMS = [
   '  Delete Contact',
   '  Import Contacts',
   '  Export Contacts',
+  '  Add Column',
   '  Schema Info',
   '  Database Info',
   '  Quit',
@@ -30,7 +32,7 @@ const MENU_ITEMS = [
 /**
  * Launch the full-screen blessed TUI for contact management.
  */
-async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom) {
+async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom, pluginCtx = {}) {
   const screen = blessed.screen({
     smartCSR: true,
     title: 'SMS Contact Management',
@@ -135,15 +137,19 @@ async function launchTui(db, tableConfig, columns, dbPath, discoveredFrom) {
         contentBox.setLabel(' Export ');
         currentView = await showExportView(screen, contentBox, db, tableConfig, columns);
         break;
-      case 7: // Schema
+      case 7: // Add Column
+        contentBox.setLabel(' Add Column ');
+        currentView = await showAddColumnView(screen, contentBox, db, tableConfig, columns, returnToMenu, pluginCtx);
+        break;
+      case 8: // Schema
         contentBox.setLabel(' Schema ');
         currentView = await showSchemaView(screen, contentBox, db, tableConfig, columns);
         break;
-      case 8: // DB Info
+      case 9: // DB Info
         contentBox.setLabel(' Database Info ');
         currentView = await showDbInfoView(screen, contentBox, db, tableConfig, columns, dbPath, discoveredFrom);
         break;
-      case 9: // Quit
+      case 10: // Quit
         screen.destroy();
         return;
     }

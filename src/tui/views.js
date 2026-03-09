@@ -669,6 +669,178 @@ async function showDbInfoView(screen, contentBox, db, tableConfig, columns, dbPa
   return infoBox;
 }
 
+// ── Add Column View ──────────────────────────────────────────────────────
+
+async function showAddColumnView(screen, contentBox, db, tableConfig, columns, returnToMenu, pluginCtx) {
+  contentBox.children.forEach(c => c.detach());
+
+  const { addColumn, updateSiblingSelectColumns, discoverColumns } = require('../db');
+  const { isSafeSqlIdent } = require('../normalize');
+  const { table } = tableConfig;
+
+  // Show current columns
+  const existingText = blessed.text({
+    parent: contentBox,
+    top: 0,
+    left: 2,
+    width: '100%-4',
+    height: 2,
+    style: { fg: COLORS.dim },
+    tags: true,
+    content: `{bold}Existing columns:{/} ${columns.map(c => c.name).join(', ')}`,
+  });
+
+  // Column name input
+  blessed.text({
+    parent: contentBox,
+    top: 3,
+    left: 2,
+    width: 20,
+    height: 1,
+    content: 'Column name:',
+    style: { fg: COLORS.fg },
+  });
+
+  const nameInput = createInput(contentBox, {
+    label: ' Column Name (alphanumeric + underscore) ',
+    top: 3,
+    left: 22,
+    width: '50%',
+    height: 3,
+  });
+
+  // Type selector
+  blessed.text({
+    parent: contentBox,
+    top: 7,
+    left: 2,
+    width: 20,
+    height: 1,
+    content: 'Column type:',
+    style: { fg: COLORS.fg },
+  });
+
+  const typeList = blessed.list({
+    parent: contentBox,
+    top: 7,
+    left: 22,
+    width: 20,
+    height: 6,
+    items: ['TEXT', 'INTEGER', 'REAL', 'BLOB'],
+    keys: true,
+    mouse: true,
+    border: { type: 'line' },
+    style: {
+      border: { fg: COLORS.border },
+      selected: { fg: 'black', bg: COLORS.selected },
+      item: { fg: COLORS.fg },
+    },
+  });
+
+  const statusBox = blessed.box({
+    parent: contentBox,
+    top: 14,
+    left: 0,
+    width: '100%',
+    height: '100%-14',
+    style: { fg: COLORS.fg },
+    tags: true,
+    scrollable: true,
+    keys: true,
+  });
+
+  let selectedType = 'TEXT';
+  typeList.on('select', (item) => {
+    selectedType = item.getText().trim();
+  });
+
+  nameInput.on('submit', async (value) => {
+    const colName = (value || '').trim();
+
+    if (!colName) {
+      statusBox.setContent('{red-fg}Column name is required.{/}');
+      screen.render();
+      nameInput.focus();
+      return;
+    }
+
+    if (!isSafeSqlIdent(colName)) {
+      statusBox.setContent('{red-fg}Invalid column name. Use only letters, numbers, and underscores. Must start with a letter or underscore.{/}');
+      screen.render();
+      nameInput.focus();
+      return;
+    }
+
+    if (columns.some(c => c.name === colName)) {
+      statusBox.setContent(`{red-fg}Column "${colName}" already exists.{/}`);
+      screen.render();
+      nameInput.focus();
+      return;
+    }
+
+    const confirmed = await confirmDialog(
+      screen,
+      `Add column "${colName}" (${selectedType}) to table "${table}"?\n\nThis will also update voipms-sms/twilio selectColumns if configured.\n\n(y/n)`
+    );
+
+    if (!confirmed) {
+      statusBox.setContent('{yellow-fg}Cancelled.{/}');
+      screen.render();
+      nameInput.clearValue();
+      nameInput.focus();
+      return;
+    }
+
+    try {
+      // 1. ALTER TABLE
+      await addColumn(db, table, colName, selectedType);
+      let resultText = `{green-fg}Column "${colName}" (${selectedType}) added to ${table}!{/}\n\n`;
+
+      // 2. Update sibling configs
+      if (pluginCtx.runtime) {
+        const configResult = await updateSiblingSelectColumns(pluginCtx.runtime, colName);
+        if (configResult.updated.length > 0) {
+          resultText += `{green-fg}Config updated:{/} ${configResult.updated.join(', ')}\n`;
+        }
+        if (configResult.skipped.length > 0) {
+          resultText += `{yellow-fg}Skipped:{/} ${configResult.skipped.join(', ')}\n`;
+        }
+        if (configResult.errors.length > 0) {
+          resultText += `{red-fg}Errors:{/} ${configResult.errors.join(', ')}\n`;
+        }
+      } else {
+        resultText += '{yellow-fg}Note: runtime not available — manually add column to selectColumns in openclaw.json{/}\n';
+      }
+
+      // 3. Refresh columns
+      if (pluginCtx.refreshColumns) {
+        const newCols = await pluginCtx.refreshColumns();
+        // Update the columns array in-place so all views see the new column
+        columns.length = 0;
+        columns.push(...newCols);
+        resultText += `\n{cyan-fg}Columns refreshed:{/} ${newCols.map(c => c.name).join(', ')}\n`;
+      }
+
+      resultText += '\n{gray-fg}Press Esc to go back{/}';
+      statusBox.setContent(resultText);
+      screen.render();
+      statusBox.focus();
+    } catch (e) {
+      statusBox.setContent(`{red-fg}Error: ${e.message}{/}\n\n{gray-fg}Press Esc to go back{/}`);
+      screen.render();
+      statusBox.focus();
+    }
+  });
+
+  nameInput.on('cancel', () => {
+    if (returnToMenu) returnToMenu();
+  });
+
+  nameInput.focus();
+  screen.render();
+  return nameInput;
+}
+
 module.exports = {
   showListView,
   showSearchView,
@@ -679,4 +851,5 @@ module.exports = {
   showExportView,
   showSchemaView,
   showDbInfoView,
+  showAddColumnView,
 };
