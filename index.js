@@ -137,13 +137,13 @@ module.exports = {
         {
           id: 'contacts_add',
           name: 'contacts_add',
-          description: 'Add a new contact. Pass phone plus column values as top-level parameters (e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}). Fails if phone already exists — use contacts_upsert instead.',
+          description: 'Add a new contact. Requires phone. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"John","email":"john@example.com"}}. Call contacts_schema to discover column names. Fails if phone exists — use contacts_upsert instead.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
+              fields: { type: 'object', description: 'Column values as key-value pairs, e.g. {"name":"John","email":"j@example.com"}. Call contacts_schema to see available column names.' },
             },
-            additionalProperties: { type: 'string', description: 'Column value — pass any contact column as a top-level key' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -156,8 +156,9 @@ module.exports = {
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn];
               const vals = [phone];
-              for (const [k, v] of Object.entries(params)) {
-                if (k === 'phone') continue;
+              const extra = params.fields || params;
+              for (const [k, v] of Object.entries(extra)) {
+                if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 cols.push(k); vals.push(v);
@@ -178,13 +179,13 @@ module.exports = {
         {
           id: 'contacts_update',
           name: 'contacts_update',
-          description: 'Update an existing contact. Pass phone plus the columns to change as top-level parameters (e.g. {"phone":"5551234567","name":"Jane"}). Only provided columns are modified.',
+          description: 'Update an existing contact. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"Jane"}}. Only provided columns are modified.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
+              fields: { type: 'object', description: 'Column values to update as key-value pairs, e.g. {"name":"Jane"}. Call contacts_schema to see available column names.' },
             },
-            additionalProperties: { type: 'string', description: 'Column value to update' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -196,13 +197,14 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const setParts = []; const vals = [];
-              for (const [k, v] of Object.entries(params)) {
-                if (k === 'phone') continue;
+              const extra = params.fields || params;
+              for (const [k, v] of Object.entries(extra)) {
+                if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 setParts.push(`${k} = ?`); vals.push(v);
               }
-              if (!setParts.length) return { error: 'No valid fields to update. Pass column values as top-level parameters.', availableColumns: allColNames };
+              if (!setParts.length) return { error: 'No valid fields to update. Pass column values in the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"Jane"}}', availableColumns: allColNames };
               const pm = contactTable.phoneMatch === 'like';
               vals.push(pm ? `%${phone}%` : phone);
               const sql = `UPDATE ${contactTable.table} SET ${setParts.join(', ')} WHERE ${contactTable.phoneColumn} ${pm ? 'LIKE' : '='} ?`;
@@ -215,13 +217,13 @@ module.exports = {
         {
           id: 'contacts_upsert',
           name: 'contacts_upsert',
-          description: 'Add or update a contact. Pass phone plus column values as top-level parameters (e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}). Inserts if new, updates if phone exists.',
+          description: 'Add or update a contact. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"John","email":"john@example.com"}}. Inserts if new, updates if phone exists.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
+              fields: { type: 'object', description: 'Column values as key-value pairs, e.g. {"name":"John","email":"j@example.com"}. Call contacts_schema to see available column names.' },
             },
-            additionalProperties: { type: 'string', description: 'Column value' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -233,8 +235,9 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn]; const vals = [phone]; const upd = [];
-              for (const [k, v] of Object.entries(params)) {
-                if (k === 'phone') continue;
+              const extra = params.fields || params;
+              for (const [k, v] of Object.entries(extra)) {
+                if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 cols.push(k); vals.push(v); upd.push(`${k} = excluded.${k}`);
