@@ -674,171 +674,196 @@ async function showDbInfoView(screen, contentBox, db, tableConfig, columns, dbPa
 async function showAddColumnView(screen, contentBox, db, tableConfig, columns, returnToMenu, pluginCtx) {
   contentBox.children.forEach(c => c.detach());
 
-  const { addColumn, updateSiblingSelectColumns, discoverColumns } = require('../db');
+  const { addColumn, updateSiblingSelectColumns } = require('../db');
   const { isSafeSqlIdent } = require('../normalize');
   const { table } = tableConfig;
 
-  // Show current columns
-  const existingText = blessed.text({
-    parent: contentBox,
-    top: 0,
-    left: 2,
-    width: '100%-4',
-    height: 2,
-    style: { fg: COLORS.dim },
-    tags: true,
-    content: `{bold}Existing columns:{/} ${columns.map(c => c.name).join(', ')}`,
-  });
+  // Step 1: Ask for column name
+  const colName = await new Promise((resolve) => {
+    blessed.text({
+      parent: contentBox,
+      top: 0,
+      left: 2,
+      width: '100%-4',
+      height: 2,
+      style: { fg: COLORS.dim },
+      tags: true,
+      content: `{bold}Existing columns:{/} ${columns.map(c => c.name).join(', ')}`,
+    });
 
-  // Column name input
-  blessed.text({
-    parent: contentBox,
-    top: 3,
-    left: 2,
-    width: 20,
-    height: 1,
-    content: 'Column name:',
-    style: { fg: COLORS.fg },
-  });
+    const helpText = blessed.text({
+      parent: contentBox,
+      top: 2,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.dim },
+      content: 'Enter column name, then select type. Esc to cancel.',
+    });
 
-  const nameInput = createInput(contentBox, {
-    label: ' Column Name (alphanumeric + underscore) ',
-    top: 3,
-    left: 22,
-    width: '50%',
-    height: 3,
-  });
+    const errorText = blessed.text({
+      parent: contentBox,
+      top: 3,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.error },
+      tags: true,
+      content: '',
+    });
 
-  // Type selector
-  blessed.text({
-    parent: contentBox,
-    top: 7,
-    left: 2,
-    width: 20,
-    height: 1,
-    content: 'Column type:',
-    style: { fg: COLORS.fg },
-  });
+    const nameInput = createInput(contentBox, {
+      label: ' Column Name (letters, numbers, underscore) ',
+      top: 5,
+      height: 3,
+    });
 
-  const typeList = blessed.list({
-    parent: contentBox,
-    top: 7,
-    left: 22,
-    width: 20,
-    height: 6,
-    items: ['TEXT', 'INTEGER', 'REAL', 'BLOB'],
-    keys: true,
-    mouse: true,
-    border: { type: 'line' },
-    style: {
-      border: { fg: COLORS.border },
-      selected: { fg: 'black', bg: COLORS.selected },
-      item: { fg: COLORS.fg },
-    },
-  });
-
-  const statusBox = blessed.box({
-    parent: contentBox,
-    top: 14,
-    left: 0,
-    width: '100%',
-    height: '100%-14',
-    style: { fg: COLORS.fg },
-    tags: true,
-    scrollable: true,
-    keys: true,
-  });
-
-  let selectedType = 'TEXT';
-  typeList.on('select', (item) => {
-    selectedType = item.getText().trim();
-  });
-
-  nameInput.on('submit', async (value) => {
-    const colName = (value || '').trim();
-
-    if (!colName) {
-      statusBox.setContent('{red-fg}Column name is required.{/}');
-      screen.render();
-      nameInput.focus();
-      return;
-    }
-
-    if (!isSafeSqlIdent(colName)) {
-      statusBox.setContent('{red-fg}Invalid column name. Use only letters, numbers, and underscores. Must start with a letter or underscore.{/}');
-      screen.render();
-      nameInput.focus();
-      return;
-    }
-
-    if (columns.some(c => c.name === colName)) {
-      statusBox.setContent(`{red-fg}Column "${colName}" already exists.{/}`);
-      screen.render();
-      nameInput.focus();
-      return;
-    }
-
-    const confirmed = await confirmDialog(
-      screen,
-      `Add column "${colName}" (${selectedType}) to table "${table}"?\n\nThis will also update voipms-sms/twilio selectColumns if configured.\n\n(y/n)`
-    );
-
-    if (!confirmed) {
-      statusBox.setContent('{yellow-fg}Cancelled.{/}');
-      screen.render();
-      nameInput.clearValue();
-      nameInput.focus();
-      return;
-    }
-
-    try {
-      // 1. ALTER TABLE
-      await addColumn(db, table, colName, selectedType);
-      let resultText = `{green-fg}Column "${colName}" (${selectedType}) added to ${table}!{/}\n\n`;
-
-      // 2. Update sibling configs
-      if (pluginCtx.runtime) {
-        const configResult = await updateSiblingSelectColumns(pluginCtx.runtime, colName);
-        if (configResult.updated.length > 0) {
-          resultText += `{green-fg}Config updated:{/} ${configResult.updated.join(', ')}\n`;
-        }
-        if (configResult.skipped.length > 0) {
-          resultText += `{yellow-fg}Skipped:{/} ${configResult.skipped.join(', ')}\n`;
-        }
-        if (configResult.errors.length > 0) {
-          resultText += `{red-fg}Errors:{/} ${configResult.errors.join(', ')}\n`;
-        }
-      } else {
-        resultText += '{yellow-fg}Note: runtime not available — manually add column to selectColumns in openclaw.json{/}\n';
+    nameInput.on('submit', (value) => {
+      const name = (value || '').trim();
+      if (!name) {
+        errorText.setContent('{red-fg}Column name is required.{/}');
+        screen.render();
+        nameInput.clearValue();
+        nameInput.focus();
+        return;
       }
-
-      // 3. Refresh columns
-      if (pluginCtx.refreshColumns) {
-        const newCols = await pluginCtx.refreshColumns();
-        // Update the columns array in-place so all views see the new column
-        columns.length = 0;
-        columns.push(...newCols);
-        resultText += `\n{cyan-fg}Columns refreshed:{/} ${newCols.map(c => c.name).join(', ')}\n`;
+      if (!isSafeSqlIdent(name)) {
+        errorText.setContent('{red-fg}Invalid name. Use only letters, numbers, underscore. Must start with letter or underscore.{/}');
+        screen.render();
+        nameInput.clearValue();
+        nameInput.focus();
+        return;
       }
+      if (columns.some(c => c.name === name)) {
+        errorText.setContent(`{red-fg}Column "${name}" already exists.{/}`);
+        screen.render();
+        nameInput.clearValue();
+        nameInput.focus();
+        return;
+      }
+      resolve(name);
+    });
 
-      resultText += '\n{gray-fg}Press Esc to go back{/}';
-      statusBox.setContent(resultText);
-      screen.render();
-      statusBox.focus();
-    } catch (e) {
-      statusBox.setContent(`{red-fg}Error: ${e.message}{/}\n\n{gray-fg}Press Esc to go back{/}`);
-      screen.render();
-      statusBox.focus();
-    }
+    nameInput.on('cancel', () => {
+      resolve(null);
+    });
+
+    nameInput.focus();
+    screen.render();
   });
 
-  nameInput.on('cancel', () => {
+  if (!colName) {
     if (returnToMenu) returnToMenu();
+    return contentBox;
+  }
+
+  // Step 2: Pick column type
+  contentBox.children.forEach(c => c.detach());
+
+  const selectedType = await new Promise((resolve) => {
+    blessed.text({
+      parent: contentBox,
+      top: 0,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.accent },
+      tags: true,
+      content: `Adding column: {bold}${colName}{/}`,
+    });
+
+    blessed.text({
+      parent: contentBox,
+      top: 2,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.dim },
+      content: 'Select column type with arrows, press Enter to confirm. Esc to cancel.',
+    });
+
+    const typeList = blessed.list({
+      parent: contentBox,
+      top: 4,
+      left: 2,
+      width: 30,
+      height: 8,
+      items: ['  TEXT', '  INTEGER', '  REAL', '  BLOB'],
+      keys: true,
+      vi: true,
+      mouse: true,
+      border: { type: 'line' },
+      style: {
+        border: { fg: COLORS.border },
+        focus: { border: { fg: COLORS.borderFocus } },
+        selected: { fg: 'black', bg: COLORS.selected, bold: true },
+        item: { fg: COLORS.fg },
+      },
+      label: ' Column Type ',
+    });
+
+    typeList.on('select', (item) => {
+      resolve(item.getText().trim());
+    });
+
+    typeList.key(['escape'], () => {
+      resolve(null);
+    });
+
+    typeList.focus();
+    screen.render();
   });
 
-  nameInput.focus();
-  screen.render();
-  return nameInput;
+  if (!selectedType) {
+    if (returnToMenu) returnToMenu();
+    return contentBox;
+  }
+
+  // Step 3: Confirm
+  const confirmed = await confirmDialog(
+    screen,
+    `Add column "${colName}" (${selectedType}) to table "${table}"?\n\nThis will also update voipms-sms/twilio\nselectColumns in openclaw.json if configured.\n\n(y/n)`
+  );
+
+  if (!confirmed) {
+    if (returnToMenu) returnToMenu();
+    return contentBox;
+  }
+
+  // Step 4: Execute
+  try {
+    await addColumn(db, table, colName, selectedType);
+    let resultText = `Column "${colName}" (${selectedType}) added to ${table}!\n\n`;
+
+    if (pluginCtx.runtime) {
+      const configResult = await updateSiblingSelectColumns(pluginCtx.runtime, colName);
+      if (configResult.updated.length > 0) {
+        resultText += `Config updated: ${configResult.updated.join(', ')}\n`;
+      }
+      if (configResult.skipped.length > 0) {
+        resultText += `Skipped: ${configResult.skipped.join(', ')}\n`;
+      }
+      if (configResult.errors.length > 0) {
+        resultText += `Errors: ${configResult.errors.join(', ')}\n`;
+      }
+    } else {
+      resultText += 'Note: manually add column to selectColumns in openclaw.json\n';
+    }
+
+    if (pluginCtx.refreshColumns) {
+      const newCols = await pluginCtx.refreshColumns();
+      columns.length = 0;
+      columns.push(...newCols);
+      resultText += `\nColumns refreshed: ${newCols.map(c => c.name).join(', ')}`;
+    }
+
+    await messageBox(screen, resultText, { type: 'success', label: ' Column Added ' });
+  } catch (e) {
+    await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
+  }
+
+  if (returnToMenu) returnToMenu();
+  return contentBox;
 }
 
 module.exports = {

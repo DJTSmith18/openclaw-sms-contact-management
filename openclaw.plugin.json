@@ -2,7 +2,7 @@
   "id": "sms-contact-management",
   "name": "SMS Contact Management",
   "description": "Full CRUD, search, import/export for SMS contacts in a shared SQLite database. Provides agent tools and an interactive blessed TUI.",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "kind": "tool",
   "configSchema": {
     "type": "object",
