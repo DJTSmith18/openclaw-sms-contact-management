@@ -1,6 +1,6 @@
 {
   "name": "sms-contact-management",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "SMS contact management plugin for OpenClaw — full CRUD, search, import/export with blessed TUI and agent tools",
   "main": "index.js",
   "openclaw": {

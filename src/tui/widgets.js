@@ -51,7 +51,12 @@ function createInput(parent, opts = {}) {
 
 /**
  * Create a form with labeled input fields for contact editing.
- * Returns { form, fields: { colName: textbox, ... }, buttons: { save, cancel } }
+ * Returns { form, fields: { colName: textbox, ... }, saveBtn, cancelBtn, focusField(name) }
+ *
+ * Navigation:
+ *   Enter / Tab / Down  → move to next field (or Save button after last field)
+ *   Shift+Tab / Up      → move to previous field
+ *   Escape              → cancel (triggers cancelBtn press)
  */
 function createContactForm(parent, columns, phoneColumn, opts = {}) {
   const form = blessed.box({
@@ -61,8 +66,6 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     width: opts.width || '100%',
     height: opts.height || '100%',
     scrollable: true,
-    keys: true,
-    vi: true,
     border: { type: 'line' },
     style: {
       border: { fg: COLORS.border },
@@ -70,10 +73,24 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     label: opts.label || ' Contact Form ',
   });
 
+  // Help text at top
+  blessed.text({
+    parent: form,
+    top: 0,
+    left: 2,
+    width: '100%-4',
+    height: 1,
+    content: 'Tab/Enter=next field | Shift+Tab=prev field | Esc=cancel',
+    style: { fg: COLORS.dim },
+    tags: false,
+  });
+
   const fields = {};
-  let row = 1;
+  const fieldOrder = [];  // ordered list of focusable elements
+  let row = 2;
 
   for (const col of columns) {
+    // Label
     blessed.text({
       parent: form,
       top: row,
@@ -84,13 +101,14 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
       style: { fg: col.pk ? COLORS.accent : COLORS.fg, bold: col.pk },
     });
 
+    // Input — NOT inputOnFocus (we manage focus manually to prevent capture)
     const textbox = blessed.textbox({
       parent: form,
       top: row,
       left: 23,
       width: '50%',
       height: 1,
-      inputOnFocus: true,
+      inputOnFocus: false,
       keys: true,
       mouse: true,
       style: {
@@ -101,6 +119,7 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     });
 
     fields[col.name] = textbox;
+    fieldOrder.push({ type: 'field', name: col.name, el: textbox });
     row += 2;
   }
 
@@ -145,7 +164,93 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     keys: true,
   });
 
-  return { form, fields, saveBtn, cancelBtn };
+  fieldOrder.push({ type: 'button', name: 'save', el: saveBtn });
+  fieldOrder.push({ type: 'button', name: 'cancel', el: cancelBtn });
+
+  // ── Navigation logic ─────────────────────────────────────────────────
+  let currentIndex = 0;
+  let editing = false;  // true when a textbox is in input mode
+
+  function focusIndex(idx) {
+    if (idx < 0) idx = 0;
+    if (idx >= fieldOrder.length) idx = fieldOrder.length - 1;
+    currentIndex = idx;
+    const item = fieldOrder[idx];
+    editing = false;
+    item.el.focus();
+    if (item.type === 'field') {
+      // Enter input mode on the textbox
+      editing = true;
+      item.el.readInput();
+    }
+    form.parent?.screen?.render();
+  }
+
+  function focusNext() {
+    focusIndex(currentIndex + 1);
+  }
+
+  function focusPrev() {
+    focusIndex(currentIndex - 1);
+  }
+
+  // Wire navigation on each textbox
+  for (let i = 0; i < fieldOrder.length; i++) {
+    const item = fieldOrder[i];
+
+    if (item.type === 'field') {
+      const textbox = item.el;
+
+      // When Enter is pressed in a textbox, it fires 'submit' and exits input mode.
+      // Move to next field.
+      textbox.on('submit', () => {
+        editing = false;
+        focusNext();
+      });
+
+      // When Escape is pressed in a textbox, it fires 'cancel'.
+      textbox.on('cancel', () => {
+        editing = false;
+        // Don't navigate — just exit input mode, stay on same field
+        textbox.focus();
+        form.parent?.screen?.render();
+      });
+
+      // Tab → next (blessed textbox in input mode doesn't capture Tab, so
+      // we also bind it on the element for when it has focus but isn't in input mode)
+      textbox.key(['tab'], () => {
+        if (!editing) focusNext();
+      });
+      textbox.key(['S-tab'], () => {
+        if (!editing) focusPrev();
+      });
+    }
+
+    if (item.type === 'button') {
+      item.el.key(['tab'], () => focusNext());
+      item.el.key(['S-tab'], () => focusPrev());
+    }
+  }
+
+  // Clicking a field should focus it properly
+  for (let i = 0; i < fieldOrder.length; i++) {
+    const idx = i;
+    fieldOrder[i].el.on('click', () => {
+      focusIndex(idx);
+    });
+  }
+
+  return {
+    form,
+    fields,
+    saveBtn,
+    cancelBtn,
+    focusFirst: () => focusIndex(0),
+    focusField: (name) => {
+      const idx = fieldOrder.findIndex(f => f.name === name);
+      if (idx >= 0) focusIndex(idx);
+    },
+  };
 }
 
 /**

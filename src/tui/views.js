@@ -160,15 +160,12 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
   contentBox.children.forEach(c => c.detach());
 
   const { table, phoneColumn } = tableConfig;
-  const { form, fields, saveBtn, cancelBtn } = createContactForm(
+  const { form, fields, saveBtn, cancelBtn, focusFirst, focusField } = createContactForm(
     contentBox, columns, phoneColumn,
     { label: ' Add New Contact ' }
   );
 
-  let cancelled = false;
-
   cancelBtn.on('press', () => {
-    cancelled = true;
     form.detach();
     screen.render();
   });
@@ -182,7 +179,7 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
     const phone = normalizePhone(vals[phoneColumn]);
     if (!phone) {
       await messageBox(screen, 'Phone number is required.', { type: 'error', label: ' Error ' });
-      fields[phoneColumn].focus();
+      focusField(phoneColumn);
       return;
     }
 
@@ -212,9 +209,7 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
     }
   });
 
-  // Focus first field
-  const firstField = fields[columns[0].name];
-  if (firstField) firstField.focus();
+  focusFirst();
   screen.render();
   return form;
 }
@@ -260,7 +255,7 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
     // Remove phone input, show form with existing values
     phoneInput.detach();
 
-    const { form, fields, saveBtn, cancelBtn } = createContactForm(
+    const { form, fields, saveBtn, cancelBtn, focusFirst, focusField } = createContactForm(
       contentBox, columns, phoneColumn,
       { label: ` Edit Contact: ${phone} ` }
     );
@@ -309,8 +304,9 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
       }
     });
 
-    const firstField = fields[columns.find(c => c.name !== phoneColumn)?.name || columns[0].name];
-    if (firstField) firstField.focus();
+    // Focus first editable (non-PK) field, or first field if all are PK
+    const firstEditable = columns.find(c => c.name !== phoneColumn)?.name || columns[0].name;
+    focusField(firstEditable);
     screen.render();
   });
 
