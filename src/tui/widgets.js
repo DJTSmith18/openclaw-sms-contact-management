@@ -80,18 +80,31 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     left: 2,
     width: '100%-4',
     height: 1,
-    content: 'Tab/Enter=next field | Shift+Tab=prev field | Esc=cancel',
+    content: 'Tab/Enter=next | Shift+Tab=prev | Esc=exit field | Enter on button=activate',
     style: { fg: COLORS.dim },
     tags: false,
   });
 
+  // Focus indicator — shows which element is currently active
+  const focusIndicator = blessed.text({
+    parent: form,
+    top: 1,
+    left: 2,
+    width: '100%-4',
+    height: 1,
+    style: { fg: COLORS.accent },
+    tags: true,
+    content: '',
+  });
+
   const fields = {};
-  const fieldOrder = [];  // ordered list of focusable elements
-  let row = 2;
+  const fieldLabels = {};  // label widgets for each field (for visual feedback)
+  const fieldOrder = [];   // ordered list of focusable elements
+  let row = 3;
 
   for (const col of columns) {
     // Label
-    blessed.text({
+    const label = blessed.text({
       parent: form,
       top: row,
       left: 2,
@@ -119,49 +132,50 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     });
 
     fields[col.name] = textbox;
-    fieldOrder.push({ type: 'field', name: col.name, el: textbox });
+    fieldLabels[col.name] = label;
+    fieldOrder.push({ type: 'field', name: col.name, el: textbox, label });
     row += 2;
   }
 
-  // Save / Cancel buttons
+  // Save / Cancel buttons — keys: false so Enter doesn't auto-fire press
   const saveBtn = blessed.button({
     parent: form,
     top: row + 1,
     left: 2,
-    width: 12,
+    width: 14,
     height: 3,
-    content: '  Save  ',
+    content: '   Save   ',
     align: 'center',
     border: { type: 'line' },
     style: {
       fg: 'white',
-      bg: 'green',
-      border: { fg: COLORS.borderFocus },
-      focus: { bg: 'green', fg: 'white', bold: true },
+      bg: 'black',
+      border: { fg: COLORS.dim },
+      focus: { bg: 'green', fg: 'white', bold: true, border: { fg: COLORS.borderFocus } },
       hover: { bg: 'green' },
     },
     mouse: true,
-    keys: true,
+    keys: false,
   });
 
   const cancelBtn = blessed.button({
     parent: form,
     top: row + 1,
-    left: 16,
-    width: 12,
+    left: 18,
+    width: 14,
     height: 3,
-    content: ' Cancel ',
+    content: '  Cancel  ',
     align: 'center',
     border: { type: 'line' },
     style: {
       fg: 'white',
-      bg: 'red',
-      border: { fg: COLORS.error },
-      focus: { bg: 'red', fg: 'white', bold: true },
+      bg: 'black',
+      border: { fg: COLORS.dim },
+      focus: { bg: 'red', fg: 'white', bold: true, border: { fg: COLORS.error } },
       hover: { bg: 'red' },
     },
     mouse: true,
-    keys: true,
+    keys: false,
   });
 
   fieldOrder.push({ type: 'button', name: 'save', el: saveBtn });
@@ -170,6 +184,34 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
   // ── Navigation logic ─────────────────────────────────────────────────
   let currentIndex = 0;
   let editing = false;  // true when a textbox is in input mode
+
+  function updateIndicator() {
+    const item = fieldOrder[currentIndex];
+    const pos = `${currentIndex + 1}/${fieldOrder.length}`;
+    if (item.type === 'field') {
+      focusIndicator.setContent(`{cyan-fg}►{/} Field: {bold}${item.name}{/}  (${pos})  {gray-fg}[editing]{/}`);
+    } else {
+      focusIndicator.setContent(`{cyan-fg}►{/} Button: {bold}${item.name.toUpperCase()}{/}  (${pos})  {gray-fg}[Enter=activate | Tab=next]{/}`);
+    }
+
+    // Update field labels — highlight current
+    for (let i = 0; i < fieldOrder.length; i++) {
+      const f = fieldOrder[i];
+      if (f.type === 'field' && f.label) {
+        const col = columns.find(c => c.name === f.name);
+        const isPk = col?.pk;
+        if (i === currentIndex) {
+          f.label.setContent(`► ${f.name}${isPk ? ' (PK)' : ''}:`);
+          f.label.style.fg = 'green';
+          f.label.style.bold = true;
+        } else {
+          f.label.setContent(`  ${f.name}${isPk ? ' (PK)' : ''}:`);
+          f.label.style.fg = isPk ? COLORS.accent : COLORS.fg;
+          f.label.style.bold = isPk;
+        }
+      }
+    }
+  }
 
   function focusIndex(idx) {
     if (idx < 0) idx = 0;
@@ -183,6 +225,7 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
       editing = true;
       item.el.readInput();
     }
+    updateIndicator();
     form.parent?.screen?.render();
   }
 
@@ -213,6 +256,7 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
         editing = false;
         // Don't navigate — just exit input mode, stay on same field
         textbox.focus();
+        updateIndicator();
         form.parent?.screen?.render();
       });
 
@@ -227,8 +271,17 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     }
 
     if (item.type === 'button') {
+      // Enter on a focused button triggers press
+      item.el.key(['enter', 'return'], () => {
+        item.el.press();
+      });
       item.el.key(['tab'], () => focusNext());
       item.el.key(['S-tab'], () => focusPrev());
+      // Left/Right arrows to switch between buttons
+      item.el.key(['left'], () => focusPrev());
+      item.el.key(['right'], () => focusNext());
+      // Up arrow goes back to last field
+      item.el.key(['up'], () => focusPrev());
     }
   }
 
