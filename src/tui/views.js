@@ -2,7 +2,7 @@
 
 const blessed = require('blessed');
 const { COLORS } = require('./theme');
-const { createTable, createInput, createContactForm, confirmDialog, messageBox } = require('./widgets');
+const { createTable, createInput, createContactForm, confirmDialog, messageBox, createContactPicker } = require('./widgets');
 const { normalizePhone } = require('../normalize');
 const { dbAll, dbGet, dbRun } = require('../db');
 
@@ -219,100 +219,76 @@ async function showAddView(screen, contentBox, db, tableConfig, columns) {
 async function showEditView(screen, contentBox, db, tableConfig, columns) {
   contentBox.children.forEach(c => c.detach());
 
-  const { table, phoneColumn, phoneMatch } = tableConfig;
+  const { table, phoneColumn } = tableConfig;
 
-  // First, prompt for phone number
-  const phoneInput = createInput(contentBox, {
-    label: ' Enter phone number to edit (Esc to go back) ',
-    top: 'center',
-    height: 3,
+  // Show scrollable contact picker
+  const row = await createContactPicker(contentBox, db, tableConfig, columns, {
+    label: ' Select Contact to Edit ',
   });
 
-  phoneInput.on('submit', async (value) => {
-    const phone = normalizePhone(value);
-    if (!phone) {
-      await messageBox(screen, 'Invalid phone number.', { type: 'error', label: ' Error ' });
-      phoneInput.focus();
-      return;
+  if (!row) {
+    // Cancelled or no contacts
+    screen.render();
+    return contentBox;
+  }
+
+  const phone = row[phoneColumn];
+
+  // Show edit form with existing values
+  const { form, fields, saveBtn, cancelBtn, focusFirst, focusField } = createContactForm(
+    contentBox, columns, phoneColumn,
+    { label: ` Edit Contact: ${phone} ` }
+  );
+
+  // Pre-fill fields
+  for (const col of columns) {
+    if (fields[col.name] && row[col.name] !== undefined && row[col.name] !== null) {
+      fields[col.name].setValue(String(row[col.name]));
     }
+  }
 
-    let sql, sqlParams;
-    if (phoneMatch === 'like') {
-      sql = `SELECT * FROM ${table} WHERE ${phoneColumn} LIKE ? LIMIT 1`;
-      sqlParams = [`%${phone}%`];
-    } else {
-      sql = `SELECT * FROM ${table} WHERE ${phoneColumn} = ? LIMIT 1`;
-      sqlParams = [phone];
-    }
-
-    const row = await dbGet(db, sql, sqlParams);
-    if (!row) {
-      await messageBox(screen, `Contact ${phone} not found.`, { type: 'error', label: ' Not Found ' });
-      phoneInput.focus();
-      return;
-    }
-
-    // Remove phone input, show form with existing values
-    phoneInput.detach();
-
-    const { form, fields, saveBtn, cancelBtn, focusFirst, focusField } = createContactForm(
-      contentBox, columns, phoneColumn,
-      { label: ` Edit Contact: ${phone} ` }
-    );
-
-    // Pre-fill fields
-    for (const col of columns) {
-      if (fields[col.name] && row[col.name] !== undefined && row[col.name] !== null) {
-        fields[col.name].setValue(String(row[col.name]));
-      }
-    }
-
-    cancelBtn.on('press', () => {
-      form.detach();
-      screen.render();
-    });
-
-    saveBtn.on('press', async () => {
-      const setParts = [];
-      const updateVals = [];
-
-      for (const col of columns) {
-        if (col.name === phoneColumn) continue;
-        const newVal = fields[col.name].getValue().trim();
-        setParts.push(`${col.name} = ?`);
-        updateVals.push(newVal || null);
-      }
-
-      if (setParts.length === 0) {
-        await messageBox(screen, 'No fields to update.', { type: 'warning', label: ' Warning ' });
-        return;
-      }
-
-      updateVals.push(row[phoneColumn]);
-
-      try {
-        await dbRun(
-          db,
-          `UPDATE ${table} SET ${setParts.join(', ')} WHERE ${phoneColumn} = ?`,
-          updateVals
-        );
-        await messageBox(screen, `Contact ${phone} updated!`, { type: 'success', label: ' Success ' });
-        form.detach();
-        screen.render();
-      } catch (e) {
-        await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
-      }
-    });
-
-    // Focus first editable (non-PK) field, or first field if all are PK
-    const firstEditable = columns.find(c => c.name !== phoneColumn)?.name || columns[0].name;
-    focusField(firstEditable);
+  cancelBtn.on('press', () => {
+    form.detach();
     screen.render();
   });
 
-  phoneInput.focus();
+  saveBtn.on('press', async () => {
+    const setParts = [];
+    const updateVals = [];
+
+    for (const col of columns) {
+      if (col.name === phoneColumn) continue;
+      const newVal = fields[col.name].getValue().trim();
+      setParts.push(`${col.name} = ?`);
+      updateVals.push(newVal || null);
+    }
+
+    if (setParts.length === 0) {
+      await messageBox(screen, 'No fields to update.', { type: 'warning', label: ' Warning ' });
+      return;
+    }
+
+    updateVals.push(row[phoneColumn]);
+
+    try {
+      await dbRun(
+        db,
+        `UPDATE ${table} SET ${setParts.join(', ')} WHERE ${phoneColumn} = ?`,
+        updateVals
+      );
+      await messageBox(screen, `Contact ${phone} updated!`, { type: 'success', label: ' Success ' });
+      form.detach();
+      screen.render();
+    } catch (e) {
+      await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
+    }
+  });
+
+  // Focus first editable (non-PK) field, or first field if all are PK
+  const firstEditable = columns.find(c => c.name !== phoneColumn)?.name || columns[0].name;
+  focusField(firstEditable);
   screen.render();
-  return phoneInput;
+  return form;
 }
 
 // ── Delete Contact View ─────────────────────────────────────────────────────
@@ -320,62 +296,39 @@ async function showEditView(screen, contentBox, db, tableConfig, columns) {
 async function showDeleteView(screen, contentBox, db, tableConfig, columns) {
   contentBox.children.forEach(c => c.detach());
 
-  const { table, phoneColumn, phoneMatch } = tableConfig;
+  const { table, phoneColumn } = tableConfig;
 
-  const phoneInput = createInput(contentBox, {
-    label: ' Enter phone number to delete (Esc to go back) ',
-    top: 'center',
-    height: 3,
+  // Show scrollable contact picker
+  const row = await createContactPicker(contentBox, db, tableConfig, columns, {
+    label: ' Select Contact to Delete ',
   });
 
-  phoneInput.on('submit', async (value) => {
-    const phone = normalizePhone(value);
-    if (!phone) {
-      await messageBox(screen, 'Invalid phone number.', { type: 'error', label: ' Error ' });
-      phoneInput.focus();
-      return;
-    }
-
-    let sql, sqlParams;
-    if (phoneMatch === 'like') {
-      sql = `SELECT * FROM ${table} WHERE ${phoneColumn} LIKE ? LIMIT 1`;
-      sqlParams = [`%${phone}%`];
-    } else {
-      sql = `SELECT * FROM ${table} WHERE ${phoneColumn} = ? LIMIT 1`;
-      sqlParams = [phone];
-    }
-
-    const row = await dbGet(db, sql, sqlParams);
-    if (!row) {
-      await messageBox(screen, `Contact ${phone} not found.`, { type: 'error', label: ' Not Found ' });
-      phoneInput.focus();
-      return;
-    }
-
-    // Show contact details before confirming
-    const details = columns.map(c => `  ${c.name}: ${row[c.name] ?? '(empty)'}`).join('\n');
-    const confirmed = await confirmDialog(
-      screen,
-      `Delete this contact?\n\n${details}\n\n(y/n)`
-    );
-
-    if (confirmed) {
-      try {
-        await dbRun(db, `DELETE FROM ${table} WHERE ${phoneColumn} = ?`, [row[phoneColumn]]);
-        await messageBox(screen, `Contact ${phone} deleted.`, { type: 'success', label: ' Deleted ' });
-      } catch (e) {
-        await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
-      }
-    }
-
-    phoneInput.clearValue();
-    phoneInput.focus();
+  if (!row) {
+    // Cancelled or no contacts
     screen.render();
-  });
+    return contentBox;
+  }
 
-  phoneInput.focus();
+  const phone = row[phoneColumn];
+
+  // Show contact details before confirming
+  const details = columns.map(c => `  ${c.name}: ${row[c.name] ?? '(empty)'}`).join('\n');
+  const confirmed = await confirmDialog(
+    screen,
+    `Delete this contact?\n\n${details}\n\n(y/n)`
+  );
+
+  if (confirmed) {
+    try {
+      await dbRun(db, `DELETE FROM ${table} WHERE ${phoneColumn} = ?`, [row[phoneColumn]]);
+      await messageBox(screen, `Contact ${phone} deleted.`, { type: 'success', label: ' Deleted ' });
+    } catch (e) {
+      await messageBox(screen, `Error: ${e.message}`, { type: 'error', label: ' Error ' });
+    }
+  }
+
   screen.render();
-  return phoneInput;
+  return contentBox;
 }
 
 // ── Import View ─────────────────────────────────────────────────────────────

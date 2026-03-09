@@ -318,4 +318,186 @@ function messageBox(screen, message, opts = {}) {
   });
 }
 
-module.exports = { createTable, createInput, createContactForm, confirmDialog, messageBox };
+/**
+ * Create a scrollable contact picker list.
+ * Loads all contacts, displays them in a navigable list.
+ * Returns a Promise that resolves with the selected row object, or null if cancelled.
+ *
+ * Navigation: arrows/pageup/pagedown to scroll, Enter to select, Esc to cancel,
+ *             / to filter by typing.
+ */
+function createContactPicker(parent, db, tableConfig, columns, opts = {}) {
+  const { dbAll } = require('../db');
+  const { table, phoneColumn } = tableConfig;
+  const displayCol = tableConfig.displayName || null;
+  const colNames = columns.map(c => c.name);
+
+  // Build display string for a row: "phone — name — email ..."
+  function formatRow(row) {
+    const parts = [row[phoneColumn] || '?'];
+    for (const col of colNames) {
+      if (col === phoneColumn) continue;
+      if (row[col]) parts.push(row[col]);
+    }
+    return parts.join('  —  ');
+  }
+
+  return new Promise(async (resolve) => {
+    let allRows;
+    try {
+      allRows = await dbAll(db, `SELECT * FROM ${table} ORDER BY ${phoneColumn}`);
+    } catch (e) {
+      resolve(null);
+      return;
+    }
+
+    if (!allRows || allRows.length === 0) {
+      const { messageBox: mb } = require('./widgets');
+      // Can't require self easily, use inline
+      const msg = blessed.message({
+        parent: parent.screen || parent,
+        top: 'center', left: 'center', width: '50%', height: 5,
+        border: { type: 'line' },
+        style: { border: { fg: COLORS.warning }, fg: COLORS.warning },
+        label: ' No Contacts ',
+        keys: true,
+      });
+      msg.display('No contacts found in the database.', 0, () => {
+        msg.detach();
+        (parent.screen || parent).render();
+        resolve(null);
+      });
+      (parent.screen || parent).render();
+      return;
+    }
+
+    let filteredRows = allRows;
+    let filterText = '';
+
+    const container = blessed.box({
+      parent,
+      top: opts.top || 0,
+      left: opts.left || 0,
+      width: opts.width || '100%',
+      height: opts.height || '100%',
+      border: { type: 'line' },
+      style: { border: { fg: COLORS.border } },
+      label: opts.label || ' Select Contact ',
+    });
+
+    const helpLine = blessed.text({
+      parent: container,
+      top: 0,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.dim },
+      content: 'Arrows/PgUp/PgDn=scroll | Enter=select | /=filter | Esc=cancel',
+    });
+
+    const filterLine = blessed.text({
+      parent: container,
+      top: 1,
+      left: 2,
+      width: '100%-4',
+      height: 1,
+      style: { fg: COLORS.accent },
+      tags: true,
+      content: '',
+    });
+
+    const list = blessed.list({
+      parent: container,
+      top: 2,
+      left: 0,
+      width: '100%-2',
+      height: '100%-3',
+      keys: true,
+      vi: true,
+      mouse: true,
+      scrollbar: { ch: '│', style: { fg: COLORS.accent } },
+      style: {
+        selected: { fg: 'black', bg: COLORS.selected, bold: true },
+        item: { fg: COLORS.fg },
+      },
+    });
+
+    function refreshList() {
+      const items = filteredRows.map(formatRow);
+      list.setItems(items);
+      if (items.length > 0) list.select(0);
+      const countText = filterText
+        ? `{cyan-fg}Filter:{/} "${filterText}" (${filteredRows.length}/${allRows.length})`
+        : `{gray-fg}${allRows.length} contacts{/}`;
+      filterLine.setContent(countText);
+      (parent.screen || parent).render();
+    }
+
+    function applyFilter() {
+      if (!filterText) {
+        filteredRows = allRows;
+      } else {
+        const q = filterText.toLowerCase();
+        filteredRows = allRows.filter(row =>
+          colNames.some(col => String(row[col] || '').toLowerCase().includes(q))
+        );
+      }
+      refreshList();
+    }
+
+    // Enter = select
+    list.on('select', (item, index) => {
+      const row = filteredRows[index];
+      container.detach();
+      (parent.screen || parent).render();
+      resolve(row || null);
+    });
+
+    // Esc = cancel
+    list.key(['escape'], () => {
+      container.detach();
+      (parent.screen || parent).render();
+      resolve(null);
+    });
+
+    // / = start typing filter
+    list.key(['/'], () => {
+      const filterInput = blessed.textbox({
+        parent: container,
+        bottom: 0,
+        left: 0,
+        width: '100%',
+        height: 1,
+        inputOnFocus: true,
+        style: { fg: COLORS.inputFg, bg: 'blue' },
+      });
+      filterInput.focus();
+      (parent.screen || parent).render();
+
+      filterInput.on('submit', (val) => {
+        filterText = (val || '').trim();
+        filterInput.detach();
+        applyFilter();
+        list.focus();
+      });
+      filterInput.on('cancel', () => {
+        filterInput.detach();
+        list.focus();
+        (parent.screen || parent).render();
+      });
+    });
+
+    // Backspace clears filter when not in input mode
+    list.key(['backspace'], () => {
+      if (filterText) {
+        filterText = '';
+        applyFilter();
+      }
+    });
+
+    refreshList();
+    list.focus();
+  });
+}
+
+module.exports = { createTable, createInput, createContactForm, confirmDialog, messageBox, createContactPicker };
