@@ -1,0 +1,56 @@
+{
+  "id": "sms-contact-management",
+  "name": "SMS Contact Management",
+  "description": "Full CRUD, search, import/export for SMS contacts in a shared SQLite database. Provides agent tools and an interactive blessed TUI.",
+  "version": "1.0.0",
+  "kind": "tool",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "description": "Path to SQLite database file. If omitted, auto-discovered from voipms-sms or openclaw-twilio plugin config."
+      },
+      "contactTable": {
+        "type": "object",
+        "description": "Manual override for contact table schema. If omitted, auto-discovered from dependent plugin.",
+        "properties": {
+          "table": {
+            "type": "string",
+            "description": "Contact table name"
+          },
+          "phoneColumn": {
+            "type": "string",
+            "description": "Column containing phone numbers"
+          },
+          "columns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Allowed columns for read/write. If omitted, discovered via PRAGMA table_info."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Column to use as contact display name"
+          },
+          "phoneMatch": {
+            "type": "string",
+            "enum": ["exact", "like"],
+            "default": "exact",
+            "description": "Phone matching strategy"
+          }
+        }
+      },
+      "discoverFrom": {
+        "type": "string",
+        "enum": ["voipms-sms", "openclaw-twilio", "auto"],
+        "default": "auto",
+        "description": "Which plugin to discover DB path and schema from. 'auto' tries voipms-sms first, then openclaw-twilio."
+      }
+    }
+  },
+  "uiHints": {
+    "dbPath": { "label": "Database Path" },
+    "discoverFrom": { "label": "Discover Config From" }
+  }
+}
