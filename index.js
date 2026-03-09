@@ -137,13 +137,13 @@ module.exports = {
         {
           id: 'contacts_add',
           name: 'contacts_add',
-          description: 'Add a new contact to the database. Fails if the phone already exists. Use contacts_schema to see available columns.',
+          description: 'Add a new contact. Pass phone plus column values as top-level parameters (e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}). Fails if phone already exists — use contacts_upsert instead.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values as key-value pairs (use contacts_schema to see available columns)' },
             },
+            additionalProperties: { type: 'string', description: 'Column value — pass any contact column as a top-level key' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -156,18 +156,20 @@ module.exports = {
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn];
               const vals = [phone];
-              const extra = params.fields || params;
-              for (const [k, v] of Object.entries(extra)) {
-                if (k === 'phone' || k === 'fields') continue;
+              for (const [k, v] of Object.entries(params)) {
+                if (k === 'phone') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 cols.push(k); vals.push(v);
               }
               const sql = `INSERT INTO ${contactTable.table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
               await dbRun(db, sql, vals);
-              return { success: true, phone, action: 'added' };
+              return { success: true, phone, action: 'added', availableColumns: allColNames };
             } catch (e) {
-              if (e.message.includes('UNIQUE constraint')) return { error: `Phone ${params.phone} already exists. Use contacts_upsert instead.` };
+              if (e.message.includes('UNIQUE constraint')) {
+                const { columns } = await getDb().catch(() => ({ columns: [] }));
+                return { error: `Phone ${params.phone} already exists. Use contacts_upsert instead.`, availableColumns: columns.map(c => c.name) };
+              }
               return { error: e.message };
             }
           },
@@ -176,13 +178,13 @@ module.exports = {
         {
           id: 'contacts_update',
           name: 'contacts_update',
-          description: 'Update an existing contact. Only provided fields are changed. Use contacts_schema to see available columns.',
+          description: 'Update an existing contact. Pass phone plus the columns to change as top-level parameters (e.g. {"phone":"5551234567","name":"Jane"}). Only provided columns are modified.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values to update as key-value pairs' },
             },
+            additionalProperties: { type: 'string', description: 'Column value to update' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -194,14 +196,13 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const setParts = []; const vals = [];
-              const extra = params.fields || params;
-              for (const [k, v] of Object.entries(extra)) {
-                if (k === 'phone' || k === 'fields') continue;
+              for (const [k, v] of Object.entries(params)) {
+                if (k === 'phone') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 setParts.push(`${k} = ?`); vals.push(v);
               }
-              if (!setParts.length) return { error: 'No valid fields to update' };
+              if (!setParts.length) return { error: 'No valid fields to update. Pass column values as top-level parameters.', availableColumns: allColNames };
               const pm = contactTable.phoneMatch === 'like';
               vals.push(pm ? `%${phone}%` : phone);
               const sql = `UPDATE ${contactTable.table} SET ${setParts.join(', ')} WHERE ${contactTable.phoneColumn} ${pm ? 'LIKE' : '='} ?`;
@@ -214,13 +215,13 @@ module.exports = {
         {
           id: 'contacts_upsert',
           name: 'contacts_upsert',
-          description: 'Add or update a contact. Inserts if new, updates if phone exists. Use contacts_schema to see available columns.',
+          description: 'Add or update a contact. Pass phone plus column values as top-level parameters (e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}). Inserts if new, updates if phone exists.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values as key-value pairs' },
             },
+            additionalProperties: { type: 'string', description: 'Column value' },
             required: ['phone'],
           },
           handler: async (params) => {
@@ -232,9 +233,8 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn]; const vals = [phone]; const upd = [];
-              const extra = params.fields || params;
-              for (const [k, v] of Object.entries(extra)) {
-                if (k === 'phone' || k === 'fields') continue;
+              for (const [k, v] of Object.entries(params)) {
+                if (k === 'phone') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 cols.push(k); vals.push(v); upd.push(`${k} = excluded.${k}`);
@@ -244,7 +244,7 @@ module.exports = {
                 ? `INSERT INTO ${contactTable.table} (${cols.join(', ')}) VALUES (${ph}) ON CONFLICT(${contactTable.phoneColumn}) DO UPDATE SET ${upd.join(', ')}`
                 : `INSERT OR IGNORE INTO ${contactTable.table} (${cols.join(', ')}) VALUES (${ph})`;
               await dbRun(db, sql, vals);
-              return { success: true, phone, action: 'upserted' };
+              return { success: true, phone, action: 'upserted', availableColumns: allColNames };
             } catch (e) { return { error: e.message }; }
           },
         },
@@ -276,7 +276,7 @@ module.exports = {
         {
           id: 'contacts_search',
           name: 'contacts_search',
-          description: 'Search contacts by partial match. Searches all text columns by default, or a specific field if provided.',
+          description: 'Search contacts by partial match. Searches all text columns by default, or a specific column if field is provided.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -306,7 +306,7 @@ module.exports = {
               const sqlP = searchCols.map(() => `%${query}%`);
               sqlP.push(limit);
               const rows = await dbAll(db, `SELECT * FROM ${contactTable.table} WHERE ${where.join(' OR ')} LIMIT ?`, sqlP);
-              return { results: rows, count: rows.length, query };
+              return { results: rows, count: rows.length, query, searchableColumns: allColNames };
             } catch (e) { return { error: e.message }; }
           },
         },
@@ -335,7 +335,7 @@ module.exports = {
               if (params.orderBy && isSafeSqlIdent(params.orderBy) && allColNames.includes(params.orderBy)) order = params.orderBy;
               const total = (await dbGet(db, `SELECT COUNT(*) as total FROM ${contactTable.table}`))?.total || 0;
               const rows = await dbAll(db, `SELECT * FROM ${contactTable.table} ORDER BY ${order} LIMIT ? OFFSET ?`, [limit, offset]);
-              return { contacts: rows, total, limit, offset };
+              return { contacts: rows, total, limit, offset, availableColumns: allColNames };
             } catch (e) { return { error: e.message }; }
           },
         },
@@ -343,7 +343,7 @@ module.exports = {
         {
           id: 'contacts_count',
           name: 'contacts_count',
-          description: 'Count contacts, optionally filtered by field values.',
+          description: 'Count contacts, optionally filtered by column values. Pass filter as an object with column names as keys (e.g. {"filter":{"name":"John"}}).',
           inputSchema: {
             type: 'object',
             properties: {
@@ -373,11 +373,11 @@ module.exports = {
         {
           id: 'contacts_import',
           name: 'contacts_import',
-          description: 'Bulk import contacts from a JSON array. Each object must have a phone field.',
+          description: 'Bulk import contacts from a JSON array. Each object must have a "phone" key plus any column values (e.g. [{"phone":"5551234567","name":"John"}]).',
           inputSchema: {
             type: 'object',
             properties: {
-              contacts: { type: 'array', description: 'Array of contact objects', items: { type: 'object' } },
+              contacts: { type: 'array', description: 'Array of contact objects — each must have "phone" plus any column values', items: { type: 'object' } },
               mode: { type: 'string', enum: ['insert', 'upsert'], description: 'Import mode (default: upsert)' },
             },
             required: ['contacts'],
@@ -412,7 +412,7 @@ module.exports = {
                 }
                 await dbRun(db, 'COMMIT');
               } catch (e) { await dbRun(db, 'ROLLBACK').catch(() => {}); return { error: `Transaction failed: ${e.message}` }; }
-              return { success: true, imported, skipped, total: params.contacts.length, errors: errors.length ? errors : undefined };
+              return { success: true, imported, skipped, total: params.contacts.length, errors: errors.length ? errors : undefined, availableColumns: allColNames };
             } catch (e) { return { error: e.message }; }
           },
         },
@@ -442,15 +442,17 @@ module.exports = {
         {
           id: 'contacts_schema',
           name: 'contacts_schema',
-          description: 'Describe the contact table schema — column names, types, and primary key.',
+          description: 'Describe the contact table schema — returns all column names, types, and which is the phone column. Call this first if you are unsure what columns are available.',
           inputSchema: { type: 'object', properties: {} },
           handler: async () => {
             try {
               const { columns } = await getDb();
+              const nonPhone = columns.filter(c => c.name !== contactTable.phoneColumn).map(c => c.name);
               return {
                 table: contactTable.table,
                 phoneColumn: contactTable.phoneColumn,
                 columns: columns.map(c => ({ name: c.name, type: c.type, primaryKey: c.pk })),
+                usage: `To add a contact, call contacts_add with: {"phone": "5551234567", ${nonPhone.map(n => `"${n}": "value"`).join(', ')}}`,
               };
             } catch (e) { return { error: e.message }; }
           },
