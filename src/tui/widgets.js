@@ -184,6 +184,7 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
   // ── Navigation logic ─────────────────────────────────────────────────
   let currentIndex = 0;
   let editing = false;  // true when a textbox is in input mode
+  let justFocused = false;  // guard against Enter propagation from textbox submit
 
   function updateIndicator() {
     const item = fieldOrder[currentIndex];
@@ -219,6 +220,9 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     currentIndex = idx;
     const item = fieldOrder[idx];
     editing = false;
+    // Guard: prevent Enter from propagating to a button on the same tick
+    justFocused = true;
+    process.nextTick(() => { justFocused = false; });
     item.el.focus();
     if (item.type === 'field') {
       // Enter input mode on the textbox
@@ -271,9 +275,9 @@ function createContactForm(parent, columns, phoneColumn, opts = {}) {
     }
 
     if (item.type === 'button') {
-      // Enter on a focused button triggers press
+      // Enter on a focused button triggers press (guarded against propagation)
       item.el.key(['enter', 'return'], () => {
-        item.el.press();
+        if (!justFocused) item.el.press();
       });
       item.el.key(['tab'], () => focusNext());
       item.el.key(['S-tab'], () => focusPrev());
