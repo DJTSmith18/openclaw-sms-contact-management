@@ -137,13 +137,13 @@ module.exports = {
         {
           id: 'contacts_add',
           name: 'contacts_add',
-          description: 'Add a new contact. Requires phone. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"John","email":"john@example.com"}}. Call contacts_schema to discover column names. Fails if phone exists — use contacts_upsert instead.',
+          description: 'Add a new contact. Requires phone. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}. Call contacts_schema to discover column names. Fails if phone exists — use contacts_upsert instead.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values as key-value pairs, e.g. {"name":"John","email":"j@example.com"}. Call contacts_schema to see available column names.' },
             },
+            additionalProperties: true,
             required: ['phone'],
           },
           handler: async (params) => {
@@ -156,7 +156,7 @@ module.exports = {
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn];
               const vals = [phone];
-              const extra = params.fields || params;
+              const extra = params;
               for (const [k, v] of Object.entries(extra)) {
                 if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
@@ -179,13 +179,13 @@ module.exports = {
         {
           id: 'contacts_update',
           name: 'contacts_update',
-          description: 'Update an existing contact. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"Jane"}}. Only provided columns are modified.',
+          description: 'Update an existing contact. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"Jane"}. Only provided columns are modified. Call contacts_schema to see available columns.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values to update as key-value pairs, e.g. {"name":"Jane"}. Call contacts_schema to see available column names.' },
             },
+            additionalProperties: true,
             required: ['phone'],
           },
           handler: async (params) => {
@@ -197,14 +197,14 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const setParts = []; const vals = [];
-              const extra = params.fields || params;
+              const extra = params;
               for (const [k, v] of Object.entries(extra)) {
                 if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
                 if (k === contactTable.phoneColumn) continue;
                 setParts.push(`${k} = ?`); vals.push(v);
               }
-              if (!setParts.length) return { error: 'No valid fields to update. Pass column values in the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"Jane"}}', availableColumns: allColNames };
+              if (!setParts.length) return { error: 'No valid fields to update. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"Jane"}', availableColumns: allColNames };
               const pm = contactTable.phoneMatch === 'like';
               vals.push(pm ? `%${phone}%` : phone);
               const sql = `UPDATE ${contactTable.table} SET ${setParts.join(', ')} WHERE ${contactTable.phoneColumn} ${pm ? 'LIKE' : '='} ?`;
@@ -217,13 +217,13 @@ module.exports = {
         {
           id: 'contacts_upsert',
           name: 'contacts_upsert',
-          description: 'Add or update a contact. Pass column values inside the "fields" object, e.g. {"phone":"5551234567","fields":{"name":"John","email":"john@example.com"}}. Inserts if new, updates if phone exists.',
+          description: 'Add or update a contact. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}. Inserts if new, updates if phone exists. Call contacts_schema to see available columns.',
           inputSchema: {
             type: 'object',
             properties: {
               phone: phoneProp,
-              fields: { type: 'object', description: 'Column values as key-value pairs, e.g. {"name":"John","email":"j@example.com"}. Call contacts_schema to see available column names.' },
             },
+            additionalProperties: true,
             required: ['phone'],
           },
           handler: async (params) => {
@@ -235,7 +235,7 @@ module.exports = {
               if (!phone) return { error: 'Invalid phone number' };
               const allColNames = columns.map(c => c.name);
               const cols = [contactTable.phoneColumn]; const vals = [phone]; const upd = [];
-              const extra = params.fields || params;
+              const extra = params;
               for (const [k, v] of Object.entries(extra)) {
                 if (k === 'phone' || k === 'fields') continue;
                 if (!allColNames.includes(k) || !isSafeSqlIdent(k)) continue;
@@ -346,12 +346,11 @@ module.exports = {
         {
           id: 'contacts_count',
           name: 'contacts_count',
-          description: 'Count contacts, optionally filtered by column values. Pass filter as an object with column names as keys (e.g. {"filter":{"name":"John"}}).',
+          description: 'Count contacts, optionally filtered by column values. Pass filter columns as top-level parameters, e.g. {"name":"John"} to count contacts named John. Uses LIKE matching.',
           inputSchema: {
             type: 'object',
-            properties: {
-              filter: { type: 'object', description: 'Filter: keys are column names, values are match strings (LIKE)' },
-            },
+            properties: {},
+            additionalProperties: true,
           },
           handler: async (params) => {
             try {
@@ -360,11 +359,12 @@ module.exports = {
               const { dbGet } = require('./src/db');
               const allColNames = columns.map(c => c.name);
               const where = []; const sqlP = [];
-              if (params.filter && typeof params.filter === 'object') {
-                for (const [k, v] of Object.entries(params.filter)) {
-                  if (!isSafeSqlIdent(k) || !allColNames.includes(k)) continue;
-                  where.push(`${k} LIKE ?`); sqlP.push(`%${v}%`);
-                }
+              // Support both flat params and legacy { filter: {...} }
+              const filterObj = (params.filter && typeof params.filter === 'object') ? params.filter : params;
+              for (const [k, v] of Object.entries(filterObj)) {
+                if (k === 'filter') continue;
+                if (!isSafeSqlIdent(k) || !allColNames.includes(k)) continue;
+                where.push(`${k} LIKE ?`); sqlP.push(`%${v}%`);
               }
               const wc = where.length ? `WHERE ${where.join(' AND ')}` : '';
               const row = await dbGet(db, `SELECT COUNT(*) as count FROM ${contactTable.table} ${wc}`, sqlP);
@@ -380,7 +380,7 @@ module.exports = {
           inputSchema: {
             type: 'object',
             properties: {
-              contacts: { type: 'array', description: 'Array of contact objects — each must have "phone" plus any column values', items: { type: 'object' } },
+              contacts: { type: 'array', description: 'Array of contact objects — each must have "phone" plus any column values, e.g. [{"phone":"5551234567","name":"John"}]', items: { type: 'object', additionalProperties: true } },
               mode: { type: 'string', enum: ['insert', 'upsert'], description: 'Import mode (default: upsert)' },
             },
             required: ['contacts'],
