@@ -113,12 +113,12 @@ module.exports = {
           id: 'contacts_get',
           name: 'contacts_get',
           description: 'Look up a contact by phone number.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: { phone: phoneProp },
             required: ['phone'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { normalizePhone } = require('./src/normalize');
@@ -138,7 +138,7 @@ module.exports = {
           id: 'contacts_add',
           name: 'contacts_add',
           description: 'Add a new contact. Requires phone. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}. Call contacts_schema to discover column names. Fails if phone exists — use contacts_upsert instead.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               phone: phoneProp,
@@ -146,7 +146,7 @@ module.exports = {
             additionalProperties: true,
             required: ['phone'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { normalizePhone, isSafeSqlIdent } = require('./src/normalize');
@@ -180,7 +180,7 @@ module.exports = {
           id: 'contacts_update',
           name: 'contacts_update',
           description: 'Update an existing contact. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"Jane"}. Only provided columns are modified. Call contacts_schema to see available columns.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               phone: phoneProp,
@@ -188,7 +188,7 @@ module.exports = {
             additionalProperties: true,
             required: ['phone'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { normalizePhone, isSafeSqlIdent } = require('./src/normalize');
@@ -218,7 +218,7 @@ module.exports = {
           id: 'contacts_upsert',
           name: 'contacts_upsert',
           description: 'Add or update a contact. Pass column values as top-level parameters, e.g. {"phone":"5551234567","name":"John","email":"john@example.com"}. Inserts if new, updates if phone exists. Call contacts_schema to see available columns.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               phone: phoneProp,
@@ -226,7 +226,7 @@ module.exports = {
             additionalProperties: true,
             required: ['phone'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { normalizePhone, isSafeSqlIdent } = require('./src/normalize');
@@ -256,12 +256,12 @@ module.exports = {
           id: 'contacts_delete',
           name: 'contacts_delete',
           description: 'Delete a contact by phone number.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: { phone: phoneProp },
             required: ['phone'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db } = await getDb();
               const { normalizePhone } = require('./src/normalize');
@@ -280,7 +280,7 @@ module.exports = {
           id: 'contacts_search',
           name: 'contacts_search',
           description: 'Search contacts by partial match. Searches all text columns by default, or a specific column if field is provided.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               query: { type: 'string', description: 'Search term (partial match)' },
@@ -289,7 +289,7 @@ module.exports = {
             },
             required: ['query'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { isSafeSqlIdent } = require('./src/normalize');
@@ -318,7 +318,7 @@ module.exports = {
           id: 'contacts_list',
           name: 'contacts_list',
           description: 'List all contacts with pagination.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               limit: { type: 'number', description: 'Max results (default 50, max 200)' },
@@ -326,7 +326,7 @@ module.exports = {
               orderBy: { type: 'string', description: 'Column to sort by' },
             },
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { isSafeSqlIdent } = require('./src/normalize');
@@ -347,12 +347,12 @@ module.exports = {
           id: 'contacts_count',
           name: 'contacts_count',
           description: 'Count contacts, optionally filtered by column values. Pass filter columns as top-level parameters, e.g. {"name":"John"} to count contacts named John. Uses LIKE matching.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {},
             additionalProperties: true,
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { isSafeSqlIdent } = require('./src/normalize');
@@ -377,7 +377,7 @@ module.exports = {
           id: 'contacts_import',
           name: 'contacts_import',
           description: 'Bulk import contacts from a JSON array. Each object must have a "phone" key plus any column values (e.g. [{"phone":"5551234567","name":"John"}]).',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               contacts: { type: 'array', description: 'Array of contact objects — each must have "phone" plus any column values, e.g. [{"phone":"5551234567","name":"John"}]', items: { type: 'object', additionalProperties: true } },
@@ -385,7 +385,7 @@ module.exports = {
             },
             required: ['contacts'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { normalizePhone, isSafeSqlIdent } = require('./src/normalize');
@@ -424,13 +424,13 @@ module.exports = {
           id: 'contacts_export',
           name: 'contacts_export',
           description: 'Export all contacts as a JSON array.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               limit: { type: 'number', description: 'Max contacts (default 500, max 1000)' },
             },
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db } = await getDb();
               const { dbAll, dbGet } = require('./src/db');
@@ -446,8 +446,8 @@ module.exports = {
           id: 'contacts_schema',
           name: 'contacts_schema',
           description: 'Describe the contact table schema — returns all column names, types, and which is the phone column. Call this first if you are unsure what columns are available.',
-          inputSchema: { type: 'object', properties: {} },
-          handler: async () => {
+          parameters: { type: 'object', properties: {} },
+          execute: async () => {
             try {
               const { columns } = await getDb();
               const nonPhone = columns.filter(c => c.name !== contactTable.phoneColumn).map(c => c.name);
@@ -465,7 +465,7 @@ module.exports = {
           id: 'contacts_add_column',
           name: 'contacts_add_column',
           description: 'Add a new column to the contact table. Also updates selectColumns in voipms-sms/twilio config if present.',
-          inputSchema: {
+          parameters: {
             type: 'object',
             properties: {
               name: { type: 'string', description: 'Column name (alphanumeric + underscore)' },
@@ -473,7 +473,7 @@ module.exports = {
             },
             required: ['name'],
           },
-          handler: async (params) => {
+          execute: async (_toolCallId, params) => {
             try {
               const { db, columns } = await getDb();
               const { isSafeSqlIdent } = require('./src/normalize');
