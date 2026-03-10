@@ -59,18 +59,10 @@ module.exports = {
             return;
           }
 
-          if (contactTable.columns && contactTable.columns.length > 0) {
-            const pragmaCols = await discoverColumns(_db, contactTable.table);
-            const pragmaNames = pragmaCols ? pragmaCols.map(c => c.name) : [];
-            _columns = contactTable.columns
-              .filter(name => pragmaNames.includes(name))
-              .map(name => {
-                const p = pragmaCols.find(c => c.name === name);
-                return { name, type: p?.type || 'TEXT', pk: p?.pk || false };
-              });
-          } else {
-            _columns = await discoverColumns(_db, contactTable.table);
-          }
+          // Always discover ALL columns from the DB — contactTable.columns
+          // (from sibling plugin selectColumns) is just a display subset and
+          // should not restrict what columns this plugin can read/write.
+          _columns = await discoverColumns(_db, contactTable.table);
 
           if (!_columns || _columns.length === 0) {
             _initError = `No columns found in table '${contactTable.table}'`;
